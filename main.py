@@ -94,32 +94,15 @@ def main():
             send_notification("Buff刀饰品价格追踪", "没有找到无涂装刀饰品")
         return
 
-    # 验证数据完整性，缺失时自动重试
+    # 验证数据完整性，缺失时自动补全
     print("\n  验证数据完整性...")
     missing = verify_vanilla_completeness((vanilla_knives, stattrak_vanilla_knives))
     if missing:
-        print(f"  → 发现 {len(missing)} 把刀缺失，启动补全重试...")
-        # 重新获取完整列表（会得到所有刀的汇总，不仅仅是缺失的）
-        retry_raw = fetch_knife_items()
-        retry_vanilla, retry_stattrak = filter_vanilla_knives(retry_raw)
-        # 合并原始结果和重试结果（去重）
-        all_raw_names = {
-            item["market_hash_name"]
-            for item in raw_items + retry_raw
-            if '|' not in item.get("market_hash_name", "")
-        }
-        still_missing = sorted(set(missing) - all_raw_names)
-        if still_missing:
-            print(f"  ⚠️ 重试后仍缺失 {len(still_missing)} 把: {', '.join(still_missing)}")
-        else:
-            print(f"  ✅ 重试后全部补齐")
+        print(f"  → 发现 {len(missing)} 把刀缺失，启动补全...")
+        retry_found, still_missing = retry_missing_knives(missing)
 
-        # 使用补全后的数据
-        all_vanilla_knives = [
-            item for item in raw_items + retry_raw
-            if '|' not in item.get("market_hash_name", "")
-        ]
-        # 去重（按 id）
+        # 合并初始数据 + 补全数据（去重）
+        all_vanilla_knives = list(all_vanilla_knives) + list(retry_found)
         seen = set()
         deduped = []
         for item in all_vanilla_knives:
@@ -129,7 +112,10 @@ def main():
                 deduped.append(item)
         all_vanilla_knives = deduped
         vanilla_knives, stattrak_vanilla_knives = filter_vanilla_knives(all_vanilla_knives)
-        print(f"  补全后: 普通 {len(vanilla_knives)} + StatTrak {len(stattrak_vanilla_knives)} = {len(vanilla_knives) + len(stattrak_vanilla_knives)}")
+        print(f"  最终结果: 普通 {len(vanilla_knives)} + StatTrak {len(stattrak_vanilla_knives)} = {len(vanilla_knives) + len(stattrak_vanilla_knives)}")
+
+        if still_missing:
+            print(f"  ⚠️ 仍有 {len(still_missing)} 把刀在 Buff 上无挂牌数据: {', '.join(still_missing)}")
 
     # 步骤3：解析数据并保存到Excel（宽格式，更新当前小时列）
     print("\n[3/4] 正在解析数据并保存价格记录...")

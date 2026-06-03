@@ -341,6 +341,60 @@ def filter_vanilla_knives(items):
     return vanilla_knives, stattrak_vanilla_knives
 
 
+def search_knife_by_name(name, game=GAME_CSGO):
+    """
+    按名称在 Buff 搜索指定饰品（目标搜索）。
+
+    使用 Buff API 的 search 参数，分页遍历结果，找到完全匹配的饰品。
+    相比全量翻页抓取（38页~2分钟），此方法只需遍历搜索结果的几页。
+
+    Args:
+        name: 饰品 market_hash_name（如 "★ Karambit"）
+        game: 游戏类型
+
+    Returns:
+        dict or None: 匹配的饰品数据，未找到时返回 None
+    """
+    cookie = ensure_login()
+    if not cookie:
+        return None
+
+    try:
+        for page in range(1, 6):  # 最多翻5页
+            params = {
+                "game": game,
+                "page_num": page,
+                "page_size": 80,
+                "search": name,
+                "category_group": "knife",
+                "use_suggestion": 0,
+                "sort_by": "name",
+                "_": int(time.time() * 1000),
+            }
+            response = requests.get(
+                BUFF_API_BASE, headers=get_headers(cookie), params=params, timeout=(10, 15)
+            )
+            if response.status_code != 200:
+                break
+
+            data = response.json()
+            if data.get("code") != "OK":
+                break
+
+            items = data["data"].get("items", [])
+            for item in items:
+                if item.get("market_hash_name") == name:
+                    return item
+
+            if len(items) < 80:  # 已翻完所有页
+                break
+
+    except requests.RequestException as e:
+        print(f"  搜索 '{name}' 失败: {e}")
+
+    return None
+
+
 def verify_vanilla_completeness(items):
     """
     验证无涂装刀是否获取完整，返回缺失的刀名列表。
@@ -367,35 +421,60 @@ def verify_vanilla_completeness(items):
 
 def retry_missing_knives(missing_names, game=GAME_CSGO):
     """
-    针对缺失的刀名，尝试通过重新抓取全部页来补全。
+    针对缺失的刀名，逐一把目标搜索补全。
 
-    因为 Buff API 没有按名称搜索的端点，只能重新全量抓取。
-    返回补全后的刀名列表。
+    使用 Buff API 的 search 参数按名称搜索，每次请求约 2 秒。
+    相比全量翻页（38 页~2 分钟），缺失数量不多时快得多。
 
     Args:
         missing_names: 缺失的刀名列表
         game: 游戏类型
 
     Returns:
-        list: 最终找到的完整刀列表（可能有部分仍缺失）
+        list: 补全后的原始刀饰品数据列表（包含初始已找到的 + 新搜到的）
     """
     if not missing_names:
         return list(KNOWN_VANILLA_KNIFE_NAMES)
 
-    print(f"\n  尝试重获取 {len(missing_names)} 把缺失的刀...")
-    retry_raw = fetch_knife_items(game=game)
-    retry_vanilla, retry_stattrak = filter_vanilla_knives(retry_raw)
-    retry_found = {item["market_hash_name"] for item in retry_vanilla + retry_stattrak}
+    import time
 
-    still_missing = [n for n in missing_names if n not in retry_found]
-    newly_found = [n for n in missing_names if n in retry_found]
+    found_items = []
+    still_missing = []
 
-    if newly_found:
-        print(f"  重获取成功: 补回了 {len(newly_found)} 把: {', '.join(newly_found)}")
+    print(f"\n  按名称逐一搜索 {len(missing_names)} 把缺失的刀...")
+    for i, name in enumerate(missing_names, 1):
+        print(f"    [{i}/{len(missing_names)}] 搜索: {name}")
+        time.sleep(0.5)  # 短延迟，避免触发限制
+        item = search_knife_by_name(name, game=game)
+        if item:
+            found_items.append(item)
+            print(f"      ✅ 找到（价格: {item.get('sell_min_price', 'N/A')}）")
+        else:
+            still_missing.append(name)
+            print(f"      ❌ 未找到")
+
+    if found_items:
+        print(f"  搜索补全成功: {len(found_items)} 把")
     if still_missing:
-        print(f"  仍缺失 {len(still_missing)} 把: {', '.join(still_missing)}")
+        print(f"  搜索后仍缺失 {len(still_missing)} 把: {', '.join(still_missing)}")
+        # 最后尝试一次全量重抓（兜底）
+        print(f"\n  尝试全量重抓兜底...")
+        retry_raw = fetch_knife_items(game=game)
+        retry_names = {
+            item["market_hash_name"]
+            for item in retry_raw
+            if '|' not in item.get("market_hash_name", "")
+        }
+        for name in list(still_missing):
+            if name in retry_names:
+                for item in retry_raw:
+                    if item.get("market_hash_name") == name:
+                        found_items.append(item)
+                        still_missing.remove(name)
+                        print(f"      ✅ 全量重抓找到: {name}")
+                        break
 
-    return sorted(retry_found | set(missing_names) - set(still_missing))
+    return found_items, still_missing
 
 
 def get_knife_name_in_chinese(english_name):
