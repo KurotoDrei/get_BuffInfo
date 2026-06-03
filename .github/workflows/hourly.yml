@@ -1,0 +1,51 @@
+name: 每小时价格追踪
+
+on:
+  schedule:
+    # 每小时的第5分钟运行（避免整点高峰）
+    - cron: '5 * * * *'
+  workflow_dispatch:  # 支持手动触发
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # 提前适配 Node.js 24
+
+jobs:
+  fetch-prices:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false  # 不使用默认 GITHUB_TOKEN，改用 GH_TOKEN PAT
+
+      - name: 设置 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 安装依赖
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 运行价格追踪脚本
+        run: python main.py
+        env:
+          BUFF_COOKIE: ${{ secrets.BUFF_COOKIE }}
+
+      - name: 提交并推送更新
+        env:
+          TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://oauth2:${TOKEN}@github.com/${GITHUB_REPOSITORY}.git
+          git add output/
+          if ! git diff --quiet --cached; then
+            git commit -m "小时数据更新 $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push origin main
+            echo "已提交并推送更新"
+          else
+            echo "无变化，跳过提交"
+          fi
