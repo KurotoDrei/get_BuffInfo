@@ -308,8 +308,9 @@ class LocalSetupApp:
         task_name = "BuffPriceTracker"
 
         if action == "create-task":
-            # 用 cmd /c cd /d + && 设置工作目录，避免 schtasks 没有 -WorkingDirectory
-            full_cmd = f'cmd /c cd /d "{project_dir}" && "{python_exe}" main.py'
+            # 用 cmd /c cd /d + && 设置工作目录
+            # 使用 run.bat 作为入口（自动创建日志目录、清理旧日志）
+            full_cmd = f'cmd /c cd /d "{project_dir}" && run.bat'
             result = subprocess.run(
                 ["schtasks", "/create", "/tn", task_name,
                  "/tr", full_cmd,
@@ -324,12 +325,31 @@ class LocalSetupApp:
                     ["schtasks", "/change", "/tn", task_name, "/enable"],
                     capture_output=True, timeout=5
                 )
+
+                # 设置 StartWhenAvailable（错过计划后立即运行）
+                # 以及禁用电池/网络检测等限制条件
+                ps_fix = f'''
+$t = Get-ScheduledTask -TaskName "{task_name}"
+$t.Settings.StartWhenAvailable = $true
+$t.Settings.AllowStartIfOnBatteries = $true
+$t.Settings.DisallowStartIfOnBatteries = $false
+$t.Settings.StopIfGoingOnBatteries = $false
+$t.Settings.RunOnlyIfIdle = $false
+$t.Settings.RunOnlyIfNetworkAvailable = $false
+Set-ScheduledTask -TaskName "{task_name}" -Settings $t.Settings | Out-Null
+'''
+                subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", ps_fix],
+                    capture_output=True, timeout=10
+                )
+
                 messagebox.showinfo("成功",
-                    f"定时任务已创建！\n"
+                    f"定时任务已创建/更新！\n"
                     f"  命令: {full_cmd}\n"
                     f"  工作目录: {project_dir}\n"
                     f"  计划: 每小时第5分钟运行\n"
-                    f"  cmd /c cd 确保运行在项目目录")
+                    f"  错过计划后自动补跑: 已启用\n"
+                    f"  日志输出: logs/ 目录")
             else:
                 messagebox.showerror("失败",
                     f"创建定时任务失败:\n{result.stderr or result.stdout}")
