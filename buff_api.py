@@ -250,9 +250,9 @@ def fetch_knife_items(max_pages=None, game=GAME_CSGO):
 
     for page in range(2, total_pages + 1):
         elapsed = time.time() - start_time
-        # 总超时控制：超过120秒就停止
-        if elapsed > 120:
-            print(f"  [{elapsed:.0f}s] 总耗时超过120秒，停止获取")
+        # 总超时控制：超过180秒就停止
+        if elapsed > 180:
+            print(f"  [{elapsed:.0f}s] 总耗时超过180秒，停止获取")
             break
 
         # 单页重试机制：最多重试3次
@@ -448,10 +448,10 @@ def retry_missing_knives(missing_names, game=GAME_CSGO):
         item = search_knife_by_name(name, game=game)
         if item:
             found_items.append(item)
-            print(f"      ✅ 找到（价格: {item.get('sell_min_price', 'N/A')}）")
+            print(f"      [OK] 找到（价格: {item.get('sell_min_price', 'N/A')}）")
         else:
             still_missing.append(name)
-            print(f"      ❌ 未找到")
+            print(f"      [FAIL] 未找到")
 
     if found_items:
         print(f"  搜索补全成功: {len(found_items)} 把")
@@ -471,7 +471,7 @@ def retry_missing_knives(missing_names, game=GAME_CSGO):
                     if item.get("market_hash_name") == name:
                         found_items.append(item)
                         still_missing.remove(name)
-                        print(f"      ✅ 全量重抓找到: {name}")
+                        print(f"      [OK] 全量重抓找到: {name}")
                         break
 
     return found_items, still_missing
